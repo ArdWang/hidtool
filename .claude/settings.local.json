@@ -8,7 +8,11 @@
       "Bash(objdump -p hidapi.dll)",
       "Bash(taskkill /F /IM hidtool.exe)",
       "Bash(taskkill /IM hidtool.exe /F)",
-      "Bash(powershell -Command \"Get-Process hidtool -ErrorAction SilentlyContinue | Stop-Process -Force\" 2>&1)"
+      "Bash(powershell -Command \"Get-Process hidtool -ErrorAction SilentlyContinue | Stop-Process -Force\" 2>&1)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(flutter pub:*)",
+      "Bash(tasklist)",
+      "Bash(findstr hidtool.exe)"
     ]
   }
 }

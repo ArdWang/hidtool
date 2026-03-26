@@ -1,14 +1,14 @@
 import 'dart:async';
-import 'dart:ffi';
 import 'dart:typed_data';
+import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
 
 import '../hid_device.dart';
 import '../hid_exception.dart';
-import 'hidapi_ffi.dart' as ffi;
+import 'hidapi_ffi.dart';
+import 'extensions.dart';
 
-/// Desktop implementation of HidDevice
 class HidDeviceDesktop extends HidDevice {
   final String _path;
   final int _vendorId;
@@ -21,41 +21,31 @@ class HidDeviceDesktop extends HidDevice {
   final int _usage;
   final int _interfaceNumber;
   final int _busType;
-  Pointer<ffi.HidDeviceHandle>? _deviceHandle;
-  StreamController<int>? _inputStreamController;
 
-  /// Create a new HidDeviceDesktop from device info
-  HidDeviceDesktop(ffi.HidDeviceInfo info)
-    : _path = _copyUtf8String(info.path),
-      _vendorId = info.vendor_id,
-      _productId = info.product_id,
-      _serialNumber = _copyWideString(info.serial_number),
-      _releaseNumber = info.release_number,
-      _manufacturer = _copyWideString(info.manufacturer_string),
-      _productName = _copyWideString(info.product_string),
-      _usagePage = info.usage_page,
-      _usage = info.usage,
-      _interfaceNumber = info.interface_number,
-      _busType = info.bus_type;
+  final NativeLibrary _hidapi;
+  Pointer<hid_device> _device = nullptr;
 
-  static String _copyUtf8String(Pointer<Utf8> pointer) {
-    if (pointer == nullptr) {
-      return '';
-    }
+  final List<void Function()> _onOpenCallbacks = [];
+  final List<void Function()> _onCloseCallbacks = [];
 
-    return pointer.toDartString();
-  }
-
-  static String _copyWideString(Pointer<Utf16> pointer) {
-    if (pointer == nullptr) {
-      return '';
-    }
-
-    return pointer.toDartString();
-  }
+  HidDeviceDesktop({
+    required NativeLibrary hidapi,
+    required hid_device_info info,
+  })  : _hidapi = hidapi,
+        _path = info.path.cast<Char>().toDartString(),
+        _vendorId = info.vendor_id,
+        _productId = info.product_id,
+        _serialNumber = info.serial_number.toDartString(),
+        _releaseNumber = info.release_number,
+        _manufacturer = info.manufacturer_string.toDartString(),
+        _productName = info.product_string.toDartString(),
+        _usagePage = info.usage_page,
+        _usage = info.usage,
+        _interfaceNumber = info.interface_number,
+        _busType = info.bus_type;
 
   @override
-  String get id => path;
+  String get id => _path;
 
   @override
   String get path => _path;
@@ -91,321 +81,239 @@ class HidDeviceDesktop extends HidDevice {
   int get busType => _busType;
 
   @override
-  bool get isOpen => _deviceHandle != null && _deviceHandle != nullptr;
-
-  /// Open the device
-  @override
   Future<void> open() async {
-    if (isOpen) return;
-
-    try {
-      final pathPtr = path.toNativeUtf8();
-      try {
-        _deviceHandle = ffi.HidApiFFI.hid_open_path(pathPtr);
-
-        if (_deviceHandle == nullptr) {
-          throw HidException('Failed to open device: ${_getErrorString()}');
-        }
-
-        // Set nonblocking mode for better control
-        ffi.HidApiFFI.hid_set_nonblocking(_deviceHandle!, 0);
-      } finally {
-        malloc.free(pathPtr);
-      }
-    } catch (e) {
-      _deviceHandle = null;
-      if (e is HidException) rethrow;
-      throw HidException('Failed to open device: $e');
+    if (isOpen) {
+      throw StateError('Device is already open.');
     }
+
+    using((arena) {
+      final pathPtr = path.toCharPointer(allocator: arena);
+      _device = _hidapi.hid_open_path(pathPtr);
+
+      if (_device == nullptr) {
+        throw HidException('Failed to open hid device. '
+            'Error: ${_getLastErrorMessage()}');
+      }
+
+      // Enable non blocking mode
+      if (_hidapi.hid_set_nonblocking(_device, 1) == -1) {
+        throw HidException('Failed to set non blocking mode. '
+            'Error: ${_getLastErrorMessage()}');
+      }
+
+      // Notify listeners
+      for (var callback in _onOpenCallbacks) {
+        callback.call();
+      }
+
+      return;
+    });
   }
 
-  /// Close the device
+  @override
+  bool get isOpen => _device != nullptr;
+
+  void onOpen(void Function() onOpenCallback) {
+    _onOpenCallbacks.add(onOpenCallback);
+  }
+
   @override
   Future<void> close() async {
-    if (!isOpen) return;
+    if (!isOpen) {
+      throw StateError('Device is not open.');
+    }
 
-    try {
-      // Close input stream if active
-      if (_inputStreamController != null) {
-        await _inputStreamController!.close();
-        _inputStreamController = null;
-      }
+    _hidapi.hid_close(_device);
+    _device = nullptr;
 
-      if (_deviceHandle != null && _deviceHandle != nullptr) {
-        ffi.HidApiFFI.hid_close(_deviceHandle!);
-      }
-    } finally {
-      _deviceHandle = null;
+    // Notify listeners
+    for (var callback in _onCloseCallbacks) {
+      callback.call();
     }
   }
 
-  /// Send an output report to the device
+  void onClose(void Function() onCloseCallback) {
+    _onCloseCallbacks.add(onCloseCallback);
+  }
+
   @override
-  Future<void> sendReport(Uint8List data, {int reportId = 0x00}) async {
+  Stream<int> inputStream() async* {
     if (!isOpen) {
-      throw HidException('Device is not open');
+      throw StateError('Device is not open.');
     }
 
-    try {
-      final buffer = malloc<Uint8>(data.length);
-      try {
-        // Copy data to native buffer
-        buffer.asTypedList(data.length).setAll(0, data);
+    const bufferSize = 1024;
+    final arena = Arena();
 
-        // Write to device
-        final result = ffi.HidApiFFI.hid_write(
-          _deviceHandle!,
-          buffer,
-          data.length,
+    try {
+      var buffer = arena<Uint8>(bufferSize);
+      int result = 0;
+      while (isOpen) {
+        result = _hidapi.hid_read(
+          _device,
+          buffer.cast<UnsignedChar>(),
+          bufferSize,
         );
 
-        if (result < 0) {
-          throw HidException('Failed to write to device: ${_getErrorString()}');
+        if (result == -1) {
+          throw HidException('Failed to receive input report. '
+              'Error: ${_getLastErrorMessage()}');
+        } else if (result > 0) {
+          for (var i = 0; i < result; i++) {
+            yield buffer[i];
+          }
         }
 
-        if (result != data.length) {
-          throw HidException(
-            'Failed to write all bytes: wrote $result of ${data.length}',
-          );
-        }
-      } finally {
-        malloc.free(buffer);
+        // Polling with 100 microseconds interval
+        await Future.delayed(const Duration(microseconds: 100));
       }
-    } catch (e) {
-      if (e is HidException) rethrow;
-      throw HidException('Failed to send report: $e');
+    } finally {
+      arena.releaseAll();
     }
   }
 
-  /// Receive an input report from the device
   @override
   Future<Uint8List> receiveReport(int reportLength, {Duration? timeout}) async {
     if (!isOpen) {
-      throw HidException('Device is not open');
+      throw StateError('Device is not open.');
     }
 
-    try {
-      final buffer = malloc<Uint8>(reportLength);
-      try {
-        int result;
-
-        if (timeout != null) {
-          result = ffi.HidApiFFI.hid_read_timeout(
-            _deviceHandle!,
-            buffer,
-            reportLength,
-            timeout.inMilliseconds,
-          );
-        } else {
-          result = ffi.HidApiFFI.hid_read(_deviceHandle!, buffer, reportLength);
-        }
-
-        if (result < 0) {
-          throw HidException(
-            'Failed to read from device: ${_getErrorString()}',
-          );
-        }
-
-        // Return only the bytes that were actually read
-        return Uint8List.fromList(buffer.asTypedList(result).toList());
-      } finally {
-        malloc.free(buffer);
-      }
-    } catch (e) {
-      if (e is HidException) rethrow;
-      throw HidException('Failed to receive report: $e');
+    var result = inputStream().take(reportLength).toList();
+    if (timeout != null) {
+      result = result.timeout(timeout);
     }
+
+    return Uint8List.fromList(await result);
   }
 
-  /// Get a feature report from the device
   @override
-  Future<Uint8List> getFeatureReport(
-    int reportLength, {
-    int reportId = 0x00,
-  }) async {
+  Future<void> sendReport(Uint8List data, {int reportId = 0x00}) async {
     if (!isOpen) {
-      throw HidException('Device is not open');
+      throw StateError('Device is not open.');
     }
 
-    try {
-      final buffer = malloc<Uint8>(reportLength);
-      try {
-        // Set the report ID in the first byte
-        buffer[0] = reportId;
+    int bufferSize = data.length + 1;
 
-        final result = ffi.HidApiFFI.hid_get_feature_report(
-          _deviceHandle!,
-          buffer,
-          reportLength,
-        );
+    using((arena) {
+      var buffer = arena<Uint8>(bufferSize);
+      buffer[0] = reportId;
+      buffer.asTypedList(bufferSize).setAll(1, data);
+      int result =
+          _hidapi.hid_write(_device, buffer.cast<UnsignedChar>(), bufferSize);
 
-        if (result < 0) {
-          throw HidException(
-            'Failed to get feature report: ${_getErrorString()}',
-          );
-        }
-
-        return Uint8List.fromList(buffer.asTypedList(result).toList());
-      } finally {
-        malloc.free(buffer);
+      if (result == -1) {
+        throw HidException('Failed to write $bufferSize bytes. '
+            'Error: ${_getLastErrorMessage()}');
       }
-    } catch (e) {
-      if (e is HidException) rethrow;
-      throw HidException('Failed to get feature report: $e');
-    }
+    });
   }
 
-  /// Send a feature report to the device
+  @override
+  Future<Uint8List> getFeatureReport(int reportLength, {int reportId = 0x00}) async {
+    if (!isOpen) {
+      throw StateError('Device is not open.');
+    }
+
+    return using((arena) {
+      var buffer = arena<Uint8>(reportLength);
+      buffer[0] = reportId;
+      buffer.asTypedList(reportLength).fillRange(1, reportLength, 0);
+      int result = _hidapi.hid_get_feature_report(
+          _device, buffer.cast<UnsignedChar>(), reportLength);
+
+      if (result == -1) {
+        throw HidException('Failed to read feature report. '
+            'Error: ${_getLastErrorMessage()}');
+      } else if (result == 0) {
+        return Uint8List(0);
+      } else {
+        return Uint8List.fromList(buffer.asTypedList(result));
+      }
+    });
+  }
+
   @override
   Future<void> sendFeatureReport(Uint8List data, {int reportId = 0x00}) async {
     if (!isOpen) {
-      throw HidException('Device is not open');
+      throw StateError('Device is not open.');
     }
 
-    try {
-      final buffer = malloc<Uint8>(data.length);
-      try {
-        buffer.asTypedList(data.length).setAll(0, data);
+    int bufferSize = data.length + 1;
 
-        final result = ffi.HidApiFFI.hid_send_feature_report(
-          _deviceHandle!,
-          buffer,
-          data.length,
-        );
-
-        if (result < 0) {
-          throw HidException(
-            'Failed to send feature report: ${_getErrorString()}',
-          );
-        }
-      } finally {
-        malloc.free(buffer);
+    using((arena) {
+      var buffer = arena<Uint8>(bufferSize);
+      buffer[0] = reportId;
+      buffer.asTypedList(bufferSize).setAll(1, data);
+      int result = _hidapi.hid_send_feature_report(
+          _device, buffer.cast<UnsignedChar>(), bufferSize);
+      if (result == -1) {
+        throw HidException(
+            'Failed to send feature report of $bufferSize bytes. '
+            'Error: ${_getLastErrorMessage()}');
       }
-    } catch (e) {
-      if (e is HidException) rethrow;
-      throw HidException('Failed to send feature report: $e');
-    }
+    });
   }
 
-  /// Get the HID report descriptor (hidapi 0.15.0+)
   @override
   Future<Uint8List> getReportDescriptor() async {
     if (!isOpen) {
-      throw HidException('Device is not open');
+      throw StateError('Device is not open.');
     }
 
-    try {
-      // Allocate buffer for report descriptor (typically max 4KB)
-      const maxDescSize = 4096;
-      final buffer = malloc<Uint8>(maxDescSize);
-      try {
-        final result = ffi.HidApiFFI.hid_get_report_descriptor(
-          _deviceHandle!,
-          buffer,
-          maxDescSize,
-        );
+    return using((arena) {
+      const maxDescSize = HID_API_MAX_REPORT_DESCRIPTOR_SIZE;
+      var buffer = arena<Uint8>(maxDescSize);
+      int result = _hidapi.hid_get_report_descriptor(
+          _device, buffer.cast<UnsignedChar>(), maxDescSize);
 
-        if (result < 0) {
-          throw HidException(
-            'Failed to get report descriptor: ${_getErrorString()}',
-          );
-        }
-
-        return Uint8List.fromList(buffer.asTypedList(result).toList());
-      } finally {
-        malloc.free(buffer);
+      if (result < 0) {
+        throw HidException('Failed to get report descriptor. '
+            'Error: ${_getLastErrorMessage()}');
       }
-    } catch (e) {
-      if (e is HidException) rethrow;
-      throw HidException('Failed to get report descriptor: $e');
-    }
+
+      return Uint8List.fromList(buffer.asTypedList(result));
+    });
   }
 
-  /// Stream of input reports as individual bytes
-  @override
-  Stream<int> inputStream() {
-    _inputStreamController ??= StreamController<int>(
-      onListen: () => _startInputReading(),
-      onCancel: () => _stopInputReading(),
-    );
-
-    return _inputStreamController!.stream;
-  }
-
-  void _startInputReading() {
-    // Implementation would continuously read from device
-    // For now, this is a placeholder
-  }
-
-  void _stopInputReading() {
-    // Implementation would stop reading
-  }
-
-  /// Get an indexed string from the device
   @override
   Future<String> getIndexedString(int index, {int maxLength = 256}) async {
     if (!isOpen) {
-      throw HidException('Device is not open');
+      throw StateError('Device is not open.');
     }
 
-    try {
-      final buffer = malloc<Uint16>(maxLength);
-      final bufferPtr = buffer.cast<Utf16>();
-      try {
-        final result = ffi.HidApiFFI.hid_get_indexed_string(
-          _deviceHandle!,
-          index,
-          bufferPtr,
-          maxLength,
-        );
+    return using((arena) {
+      var buffer = arena<WChar>(maxLength);
+      int result =
+          _hidapi.hid_get_indexed_string(_device, index, buffer, maxLength);
 
-        if (result < 0) {
-          throw HidException(
-            'Failed to get indexed string: ${_getErrorString()}',
-          );
-        }
-
-        return bufferPtr.toDartString();
-      } finally {
-        malloc.free(buffer);
+      if (result == 0) {
+        return buffer.cast<WChar>().toDartString();
+      } else {
+        throw HidException('Failed to get indexed string with $index index. '
+            'Error: ${_getLastErrorMessage()}');
       }
-    } catch (e) {
-      if (e is HidException) rethrow;
-      throw HidException('Failed to get indexed string: $e');
-    }
+    });
   }
 
-  /// Get the number of input reports on the device
   @override
   Future<int> getInputReportLength() async {
-    // This would typically be obtained from the report descriptor
-    // For now, return a default value
+    // Get from report descriptor or return default
     return 64;
   }
 
-  /// Get the number of output reports on the device
   @override
   Future<int> getOutputReportLength() async {
-    // This would typically be obtained from the report descriptor
+    // Get from report descriptor or return default
     return 64;
   }
 
-  /// Get the number of feature reports on the device
   @override
   Future<int> getFeatureReportLength() async {
-    // This would typically be obtained from the report descriptor
+    // Get from report descriptor or return default
     return 64;
   }
 
-  String _getErrorString() {
-    if (!isOpen) return 'Device not open';
-
-    try {
-      final errorPtr = ffi.HidApiFFI.hid_error(_deviceHandle!);
-      if (errorPtr == nullptr) return 'Unknown error';
-      return errorPtr.toDartString();
-    } catch (e) {
-      return 'Failed to get error string: $e';
-    }
+  String _getLastErrorMessage() {
+    return _hidapi.hid_error(_device).cast<WChar>().toDartString();
   }
 }

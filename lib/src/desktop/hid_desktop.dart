@@ -3,24 +3,48 @@ import 'dart:ffi';
 import '../hid_device.dart';
 import '../hid_exception.dart';
 import '../hid_platform_interface.dart';
-import 'hidapi_ffi.dart' as ffi;
 import 'hid_device_desktop.dart';
+import 'hidapi_ffi.dart';
+
+/// Windows implementation of Hid platform
+class HidWindows extends HidDesktop {
+  HidWindows(super.hidapi);
+
+  static void registerWith() {
+    final hidapi = NativeLibrary(DynamicLibrary.open('hidapi.dll'));
+    HidPlatform.instance = HidWindows(hidapi);
+  }
+}
+
+/// MacOS implementation of Hid platform
+class HidMacos extends HidDesktop {
+  HidMacos(super.hidapi);
+
+  static void registerWith() {
+    final hidapi = NativeLibrary(DynamicLibrary.executable());
+    HidPlatform.instance = HidMacos(hidapi);
+  }
+}
+
+/// Linux implementation of Hid platform
+class HidLinux extends HidDesktop {
+  HidLinux(super.hidapi);
+
+  static void registerWith() {
+    final hidapi = NativeLibrary(DynamicLibrary.open('libhidapi-hidraw.so.0'));
+    HidPlatform.instance = HidLinux(hidapi);
+  }
+}
 
 /// Desktop implementation of Hid platform
 class HidDesktop extends HidPlatform {
-  static bool _initialized = false;
+  HidDesktop(this._hidapi);
 
-  /// Initialize the platform
-  static Future<void> init() async {
-    if (_initialized) return;
+  final NativeLibrary _hidapi;
 
-    try {
-      ffi.HidApiFFI.initialize();
-      _initialized = true;
-    } catch (e) {
-      throw HidException('Failed to initialize HID API: $e');
-    }
-  }
+  // Track open devices. Allows to free hidapi resources
+  // when all devices get closed.
+  final List<HidDevice> _openDevices = [];
 
   @override
   Future<List<HidDevice>> getDevices({
@@ -29,91 +53,75 @@ class HidDesktop extends HidPlatform {
     int? usagePage,
     int? usage,
   }) async {
-    await init();
+    List<HidDevice> devices = [];
 
-    try {
-      final devices = <HidDevice>[];
+    // HidApi hid_enumerate returns a linked list of device info.
+    final pointer = _hidapi.hid_enumerate(vendorId ?? 0, productId ?? 0);
 
-      // Get all devices (0, 0 means all vendors and products)
-      final actualVendorId = vendorId ?? 0;
-      final actualProductId = productId ?? 0;
+    var current = pointer;
+    while (current.address != nullptr.address) {
+      final info = current.ref;
 
-      final devicesInfo = ffi.HidApiFFI.hid_enumerate(
-        actualVendorId,
-        actualProductId,
-      );
-
-      if (devicesInfo == nullptr) {
-        return devices;
+      if (usagePage != null && usagePage != info.usage_page) {
+        // Skip device
+        current = info.next;
+        continue;
       }
 
-      try {
-        var current = devicesInfo;
-
-        while (current != nullptr) {
-          // Check if device matches filter criteria
-          if (_matchesFilters(
-            current.ref,
-            usagePage: usagePage,
-            usage: usage,
-          )) {
-            devices.add(HidDeviceDesktop(current.ref));
-          }
-
-          current = current.ref.next;
-        }
-      } finally {
-        ffi.HidApiFFI.hid_free_enumeration(devicesInfo);
+      if (usage != null && usage != info.usage) {
+        // Skip device
+        current = info.next;
+        continue;
       }
 
-      return devices;
-    } catch (e) {
-      if (e is HidException) rethrow;
-      throw HidException('Failed to enumerate devices: $e');
+      final device = HidDeviceDesktop(hidapi: _hidapi, info: info);
+
+      // Listen for connection open/close
+      device.onOpen(() => _onDeviceOpen(device));
+      device.onClose(() => _onDeviceClose(device));
+
+      devices.add(device);
+
+      current = info.next;
+    }
+
+    _hidapi.hid_free_enumeration(pointer);
+
+    _exitIfPossible();
+
+    return devices;
+  }
+
+  void _onDeviceOpen(HidDevice device) {
+    _openDevices.add(device);
+  }
+
+  void _onDeviceClose(HidDevice device) {
+    _openDevices.remove(device);
+    _exitIfPossible();
+  }
+
+  void _exitIfPossible() {
+    // No more devices open. Free hidapi resources.
+    if (_openDevices.isEmpty) {
+      _exit();
     }
   }
 
-  /// Check if a device matches the filter criteria
-  static bool _matchesFilters(
-    ffi.HidDeviceInfo info, {
-    int? usagePage,
-    int? usage,
-  }) {
-    if (usagePage != null && info.usage_page != usagePage) {
-      return false;
-    }
-
-    if (usage != null && info.usage != usage) {
-      return false;
-    }
-
-    return true;
-  }
-
-  /// Get version information (hidapi 0.15.0+)
-  static Future<Map<String, int>> getVersion() async {
-    await init();
-
-    try {
-      final versionPtr = ffi.HidApiFFI.hid_version();
-      return {
-        'major': versionPtr.ref.major,
-        'minor': versionPtr.ref.minor,
-        'patch': versionPtr.ref.patch,
-      };
-    } catch (e) {
-      throw HidException('Failed to get version: $e');
+  void _exit() async {
+    if (_hidapi.hid_exit() == -1) {
+      throw HidException('HidApi did not exit correctly.');
     }
   }
 }
 
 /// Main public API entry point
 class Hid {
-  static final HidDesktop _platform = HidDesktop();
+  static final HidPlatform _platform = HidPlatform.instance;
 
   /// Initialize HID support (call this on app startup)
   static Future<void> init() async {
-    await HidDesktop.init();
+    // Initialization is handled by hid_enumerate automatically
   }
 
   /// Get list of connected HID devices
@@ -139,7 +147,13 @@ class Hid {
 
   /// Get HID API version (hidapi 0.15.0+)
   static Future<Map<String, int>> getVersion() async {
-    return HidDesktop.getVersion();
+    final lib = NativeLibrary(DynamicLibrary.open('hidapi.dll'));
+    final versionPtr = lib.hid_version();
+    return {
+      'major': versionPtr.ref.major,
+      'minor': versionPtr.ref.minor,
+      'patch': versionPtr.ref.patch,
+    };
   }
 
   /// Get a device by vendor ID and product ID
