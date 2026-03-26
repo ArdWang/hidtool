@@ -4,7 +4,7 @@ import 'package:ffi/ffi.dart';
 extension CharPointerToString on Pointer<Char> {
   String toDartString({int? length}) {
     _ensureNotNullptr('toDartString');
-    final codeUnits = this.cast<Char>();
+    final codeUnits = cast<Char>();
     if (length == null) {
       return _toUnknownLengthString(codeUnits);
     } else {
@@ -16,7 +16,7 @@ extension CharPointerToString on Pointer<Char> {
   static String _toKnownLengthString(Pointer<Char> codeUnits, int length) {
     final buffer = StringBuffer();
     for (var i = 0; i < length; i++) {
-      final char = codeUnits.elementAt(i).value;
+      final char = (codeUnits + i).value;
       buffer.writeCharCode(char);
     }
     return buffer.toString();
@@ -26,7 +26,7 @@ extension CharPointerToString on Pointer<Char> {
     final buffer = StringBuffer();
     var i = 0;
     while (true) {
-      final char = codeUnits.elementAt(i).value;
+      final char = (codeUnits + i).value;
       if (char == 0) {
         return buffer.toString();
       }
@@ -58,7 +58,7 @@ extension WCharPointerToString on Pointer<WChar> {
   static String _toKnownLengthString(Pointer<WChar> codeUnits, int length) {
     final buffer = StringBuffer();
     for (var i = 0; i < length; i++) {
-      final char = codeUnits.elementAt(i).value;
+      final char = (codeUnits + i).value;
       buffer.writeCharCode(char);
     }
     return buffer.toString();
@@ -68,7 +68,7 @@ extension WCharPointerToString on Pointer<WChar> {
     final buffer = StringBuffer();
     var i = 0;
     while (true) {
-      final char = codeUnits.elementAt(i).value;
+      final char = (codeUnits + i).value;
       if (char == 0) {
         return buffer.toString();
       }

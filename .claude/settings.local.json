@@ -12,7 +12,16 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(flutter pub:*)",
       "Bash(tasklist)",
-      "Bash(findstr hidtool.exe)"
+      "Bash(findstr hidtool.exe)",
+      "Bash(xcopy \"E:\\\\Project\\\\Github\\\\flutter\\\\hidtool\\\\third_party\\\\hidapi_official\\\\windows\" \"E:\\\\Project\\\\Github\\\\flutter\\\\hidtool\\\\third_party\\\\windows\" /E /I)",
+      "Bash(xcopy \"E:\\\\Project\\\\Github\\\\flutter\\\\hidtool\\\\third_party\\\\hidapi_official\\\\linux\" \"E:\\\\Project\\\\Github\\\\flutter\\\\hidtool\\\\third_party\\\\linux\" /E /I)",
+      "Bash(xcopy \"E:\\\\Project\\\\Github\\\\flutter\\\\hidtool\\\\third_party\\\\hidapi_official\\\\mac\" \"E:\\\\Project\\\\Github\\\\flutter\\\\hidtool\\\\third_party\\\\macos\" /E /I)",
+      "Bash(Copy-Item -Path \"E:\\\\Project\\\\Github\\\\flutter\\\\hidtool\\\\third_party\\\\hidapi_official\\\\windows\" -Destination \"E:\\\\Project\\\\Github\\\\flutter\\\\hidtool\\\\third_party\\\\windows\" -Recurse -Force)",
+      "Bash(Copy-Item -Path \"E:\\\\Project\\\\Github\\\\flutter\\\\hidtool\\\\third_party\\\\hidapi_official\\\\linux\" -Destination \"E:\\\\Project\\\\Github\\\\flutter\\\\hidtool\\\\third_party\\\\linux\" -Recurse -Force)",
+      "Bash(Copy-Item -Path \"E:\\\\Project\\\\Github\\\\flutter\\\\hidtool\\\\third_party\\\\hidapi_official\\\\mac\" -Destination \"E:\\\\Project\\\\Github\\\\flutter\\\\hidtool\\\\third_party\\\\macos\" -Recurse -Force)",
+      "Bash(cp -r \"E:/Project/Github/flutter/hidtool/third_party/hidapi_official/windows\" \"E:/Project/Github/flutter/hidtool/third_party/windows\")",
+      "Bash(cp -r \"E:/Project/Github/flutter/hidtool/third_party/hidapi_official/linux\" \"E:/Project/Github/flutter/hidtool/third_party/linux\")",
+      "Bash(cp -r \"E:/Project/Github/flutter/hidtool/third_party/hidapi_official/mac\" \"E:/Project/Github/flutter/hidtool/third_party/macos\")"
     ]
   }
 }
