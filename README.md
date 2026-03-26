@@ -1,503 +1,322 @@
-# hid4flutter 快速参考指南
+# 🎯 HIDtool - Flutter HID Device Management Application
 
-> 本格式化的快速参考卡，适合在开发过程中随时查阅
+Designed based on [hid4flutter](https://github.com/vinsfortunato/hid4flutter), **fully upgraded** to use the powerful **hidapi-0.15.0** Flutter application.
 
-> **English Version**: [QUICK_REFERENCE-EN.md](QUICK_REFERENCE-EN.md)
+![License](https://img.shields.io/badge/License-MIT-blue.svg)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-brightgreen.svg)
+![Flutter](https://img.shields.io/badge/Flutter-3.10.4%2B-blue.svg)
 
+> **中文版本**: [README.md](README.md)
 
-## 快速导航
+## ✨ Core Features
 
-| 文档 | 内容 | 用途 |
-|------|------|------|
-| **HID4FLUTTER_REFERENCE.md** | 项目完整架构 | 项目理解、设计参考 |
-| **HIDAPI_FFI_REFERENCE.md** | FFI API 详解 | 编写 hidapi 调用代码 |
-| **HIDAPI_0_15_0_MIGRATION.md** | 升级指南 | 版本升级、迁移 |
-| **这个文件** | 快速查询 | 日常开发速查 |
+🎯 **Complete HID Device Communication**
+- Device enumeration and filtering
+- Real-time data transmission/reception
+- Feature report support
+- Comprehensive error handling
 
----
+🆕 **hidapi-0.15.0 New Features**
+- ✅ Report descriptor retrieval
+- ✅ Version information query
+- ✅ Bus type identification
+- ✅ Report length query
 
-## 🚀 5 分钟快速开始
+🔧 **Ready to Use**
+- Complete compilation configuration (Windows/macOS/Linux)
+- Example Flutter UI application
+- Detailed API documentation
+- Production-grade implementation
 
-### 1. 获取设备列表
+## 🚀 Quick Start
 
-```dart
-import 'package:hid4flutter/hid4flutter.dart';
-
-// 获取所有设备
-List<HidDevice> devices = await Hid.getDevices();
-
-// 带过滤条件
-List<HidDevice> myDevices = await Hid.getDevices(
-  vendorId: 0x1234,      // 供应商 ID
-  productId: 0x5678,     // 产品 ID
-  usagePage: 0xFF00,     // HID 用途页面
-  usage: 0x0001,         // 用途
-);
-
-for (var device in myDevices) {
-  print('${device.productName} (${device.serialNumber})');
-}
-```
-
-### 2. 连接和读写数据
-
-```dart
-try {
-  // 打开设备
-  await device.open();
-  
-  // 发送数据
-  var data = Uint8List.fromList([
-    0x00,           // 报告 ID
-    0x12, 0x34,     // 数据...
-  ]);
-  await device.sendReport(data);
-  
-  // 接收数据
-  var received = await device.receiveReport(64);
-  print('Received: $received');
-  
-  // 关闭设备
-  await device.close();
-  
-} on HidException catch (e) {
-  print('Error: ${e.message}');
-}
-```
-
-### 3. 流式读取数据
-
-```dart
-// 持续读取输入报告
-device.inputStream().listen((byte) {
-  print('Byte: 0x${byte.toRadixString(16)}');
-});
-```
-
----
-
-## 📋 设备属性速查
-
-```dart
-HidDevice device = ...;
-
-// 基本信息
-device.id              // 唯一标识符
-device.path            // 平台特定路径
-device.isOpen          // 是否已打开
-
-// 硬件信息
-device.vendorId        // VID (16位)
-device.productId       // PID (16位)
-device.serialNumber    // 序列号字符串
-device.releaseNumber   // 版本号 (BCD格式)
-
-// 标识信息
-device.manufacturer    // 制造商字符串
-device.productName     // 产品名称字符串
-
-// HID 信息
-device.usagePage       // HID 用途页面 (16位)
-device.usage           // HID 用途 (16位)
-device.interfaceNumber // USB 接口号
-device.busType         // 总线类型 (0=未知, 1=USB, 2=BT, 3=I2C, 4=SPI)
-```
-
----
-
-## 🔌 API 方法速查
-
-### 连接管理
-```dart
-Future<void> open()                                    // 打开设备
-Future<void> close()                                   // 关闭设备
-bool get isOpen                                        // 是否打开
-```
-
-### 数据传输
-```dart
-Future<void> sendReport(Uint8List data, {int reportId = 0x00})
-Future<Uint8List> receiveReport(int reportLength, {Duration? timeout})
-Stream<int> inputStream()                              // 字节流
-```
-
-### 特性报告
-```dart
-Future<Uint8List> getFeatureReport(int reportLength, {int reportId = 0x00})
-Future<void> sendFeatureReport(Uint8List data, {int reportId = 0x00})
-```
-
-### 字符串检索
-```dart
-Future<String> getIndexedString(int index, {int maxLength = 256})
-```
-
----
-
-## 🔧 常见场景代码示例
-
-### 场景 1: 发现特定设备
-
-```dart
-Future<HidDevice?> findMyDevice() async {
-  List<HidDevice> devices = await Hid.getDevices(
-    vendorId: 0x1234,
-    productId: 0x5678,
-  );
-  
-  for (var device in devices) {
-    if (device.serialNumber == 'MY_SERIAL_001') {
-      return device;
-    }
-  }
-  return null;
-}
-```
-
-### 场景 2: 连接并发送命令
-
-```dart
-Future<List<int>> sendCommand(HidDevice device, List<int> cmd) async {
-  try {
-    await device.open();
-    
-    // 发送
-    var request = Uint8List.fromList([0x00, ...cmd]);
-    await device.sendReport(request);
-    
-    // 接收
-    var response = await device.receiveReport(
-      64,
-      timeout: Duration(seconds: 5),
-    );
-    
-    return response;
-    
-  } finally {
-    if (device.isOpen) await device.close();
-  }
-}
-```
-
-### 场景 3: 监听设备连接/断开
-
-```dart
-Future<void> monitorDevices() async {
-  Set<String> previousIds = {};
-  
-  while (true) {
-    List<HidDevice> current = await Hid.getDevices();
-    Set<String> currentIds = {for (var d in current) d.id};
-    
-    // 检测新连接
-    var connected = currentIds.difference(previousIds);
-    for (var id in connected) {
-      print('Device connected: $id');
-    }
-    
-    // 检测断开
-    var disconnected = previousIds.difference(currentIds);
-    for (var id in disconnected) {
-      print('Device disconnected: $id');
-    }
-    
-    previousIds = currentIds;
-    await Future.delayed(Duration(seconds: 1));  // 1秒轮询
-  }
-}
-```
-
-### 场景 4: 获取设备信息
-
-```dart
-Future<void> printDeviceInfo(HidDevice device) async {
-  print('''
-HID 设备信息
-===========
-产品: ${device.productName}
-制造商: ${device.manufacturer}
-序列号: ${device.serialNumber}
-VID: 0x${device.vendorId.toRadixString(16).padLeft(4, '0')}
-PID: 0x${device.productId.toRadixString(16).padLeft(4, '0')}
-版本: 0x${device.releaseNumber.toRadixString(16).padLeft(4, '0')}
-用途页: 0x${device.usagePage.toRadixString(16).padLeft(4, '0')}
-用途: 0x${device.usage.toRadixString(16).padLeft(4, '0')}
-总线: ${getBusTypeName(device.busType)}
-接口: ${device.interfaceNumber}
-路径: ${device.path}
-  ''');
-}
-
-String getBusTypeName(int busType) {
-  return const {
-    0: '未知',
-    1: 'USB',
-    2: 'Bluetooth',
-    3: 'I2C',
-    4: 'SPI',
-  }[busType] ?? '未知';
-}
-```
-
----
-
-## ⚠️ 错误处理
-
-### 异常类型
-
-```dart
-// HidException - 所有 HID 操作错误
-try {
-  await device.open();
-} on HidException catch (e) {
-  print('HID Error: ${e.message}');
-}
-
-// StateError - 设备状态错误
-try {
-  await device.sendReport(data);  // 如果未打开会抛出
-} on StateError catch (e) {
-  print('State Error: ${e.message}');
-}
-```
-
-### 错误恢复模式
-
-```dart
-Future<bool> tryOperation(HidDevice device) async {
-  int maxRetries = 3;
-  
-  for (int i = 0; i < maxRetries; i++) {
-    try {
-      await device.open();
-      await device.sendReport(Uint8List(64));
-      return true;
-    } on HidException catch (e) {
-      print('Attempt $i failed: ${e.message}');
-      
-      // 等待后重试
-      await Future.delayed(Duration(milliseconds: 100 * i));
-      
-      if (i < maxRetries - 1) continue;
-      return false;
-    } finally {
-      if (device.isOpen) await device.close();
-    }
-  }
-  
-  return false;
-}
-```
-
----
-
-## 📊 性能优化建议
-
-| 操作 | 耗时 | 优化建议 |
-|------|------|---------|
-| 设备枚举 | 50-100ms | 缓存结果，后台轮询 |
-| 打开设备 | 10-50ms | 提前打开直到就绪 |
-| 单次读写 | 1-10ms | 批量操作，使用流 |
-| 特性报告 | 5-20ms | 必要时才调用 |
-
-### 最佳实践
-
-```dart
-class HidDeviceManager {
-  Map<String, HidDevice> _cachedDevices = {};
-  late Timer _enumerationTimer;
-  
-  void initialize() {
-    // 后台轮询设备
-    _enumerationTimer = Timer.periodic(
-      Duration(seconds: 2),
-      (_) => _updateDeviceList(),
-    );
-  }
-  
-  Future<void> _updateDeviceList() async {
-    try {
-      List<HidDevice> devices = await Hid.getDevices();
-      _cachedDevices = {for (var d in devices) d.id: d};
-    } catch (e) {
-      print('Enumeration error: $e');
-    }
-  }
-  
-  List<HidDevice> getDevices() => _cachedDevices.values.toList();
-  
-  void dispose() => _enumerationTimer.cancel();
-}
-```
-
----
-
-## 🐛 常见问题排查
-
-| 问题 | 原因 | 解决方案 |
-|------|------|---------|
-| 找不到设备 | VID/PID 错误或设备未连接 | 检查设备管理器，验证 VID/PID |
-| 无法打开设备 | 权限不足 | Windows/Mac: 以管理员运行；Linux: 添加 udev 规则 |
-| 数据传输失败 | 报告 ID 错误 | 检查设备文档，确认报告格式 |
-| 内存泄漏 | 未关闭设备或释放资源 | 使用 finally 块确保 close() 被调用 |
-| 超时错误 | 设备响应慢 | 增大超时时间或改用非阻塞模式 |
-
----
-
-## 📱 平台特定信息
-
-### Windows
-- 驱动: 通常自动安装（通用 HID 驱动）
-- 权限: 普通用户可访问
-- 卸载: 应用退出时自动释放句柄
-
-### macOS
-- 驱动: 系统内置支持
-- 权限: 用户可访问
-- 特殊: 使用 DynamicLibrary.executable() 链接 hidapi
-
-### Linux
-- 驱动: 内核 HID 驱动 (内置)
-- 权限: 需要 udev 规则或 sudo
-- 库: 需要手动安装 libhidapi-hidraw0
+### 1️⃣ Clone and Prepare
 
 ```bash
-# Linux udev 规则 (/etc/udev/rules.d/99-hidapi.rules)
-SUBSYSTEM=="hidraw", MODE="0666"
+cd /Users/admin/Development/hidtool
+flutter pub get
 ```
 
----
+### 2️⃣ Install Platform Dependencies
 
-## 🔍 调试技巧
+#### 💻 Windows
+```powershell
+# Visual Studio 2022 + CMake + Windows SDK (install from Visual Studio Installer)
+# Then run:
+flutter run
+```
 
-### 打印所有设备信息
+#### 🍎 macOS
+```bash
+# Xcode and Command Line Tools
+xcode-select --install
+
+# Build hidapi library
+cd third_party
+chmod +x build_macos.sh
+./build_macos.sh
+
+# Run the application
+cd ..
+flutter run
+```
+
+#### 🐧 Linux
+```bash
+# Install dependencies
+sudo apt-get install -y \
+    cmake ninja-build clang pkg-config \
+    libgtk-3-dev libhidapi-hidraw0 libhidapi-hidraw-dev libudev-dev
+
+# Run the application
+flutter run
+```
+
+### 3️⃣ Using the Application
+
+1. Connect a HID device
+2. The app will automatically scan and display the device list
+3. Click on a device to open the connection
+4. Send/receive data
+
+## 💡 API Usage Examples
+
+### Basic Usage
 
 ```dart
-Future<void> debugAllDevices() async {
-  List<HidDevice> devices = await Hid.getDevices();
+import 'package:hidtool/hid4flutter.dart';
+import 'dart:typed_data';
+
+// Initialize
+await Hid.init();
+
+// Get all devices
+List<HidDevice> devices = await Hid.getDevices();
+
+// Or get a specific device by VID/PID
+HidDevice? device = await Hid.getDevice(
+  vendorId: 0x1234,
+  productId: 0x5678,
+);
+
+if (device != null) {
+  // Open the device
+  await device.open();
   
-  if (devices.isEmpty) {
-    print('No HID devices found');
-    return;
-  }
+  // Send data
+  var data = Uint8List.fromList([0x01, 0x02, 0x03]);
+  await device.sendReport(data);
   
-  for (int i = 0; i < devices.length; i++) {
-    final d = devices[i];
-    print('''
-[Device $i]
-  Path: ${d.path}
-  VID: 0x${d.vendorId.toRadixString(16).padLeft(4, '0')}
-  PID: 0x${d.productId.toRadixString(16).padLeft(4, '0')}
-  Serial: ${d.serialNumber}
-  Product: ${d.productName}
-  Manufacturer: ${d.manufacturer}
-  Usage: 0x${d.usage.toRadixString(16).padLeft(4, '0')}
-  UsagePage: 0x${d.usagePage.toRadixString(16).padLeft(4, '0')}
-    ''');
-  }
+  // Receive data (with 2-second timeout)
+  var response = await device.receiveReport(64, 
+    timeout: Duration(seconds: 2)
+  );
+  
+  // Query device information
+  print('Device: ${device.productName}');
+  print('VID: 0x${device.vendorId.toRadixString(16)}');
+  print('PID: 0x${device.productId.toRadixString(16)}');
+  
+  // hidapi 0.15.0+ new feature: Get report descriptor
+  Uint8List descriptor = await device.getReportDescriptor();
+  
+  // Close the device
+  await device.close();
 }
 ```
 
-### 监听连接事件
+### Advanced Features
 
 ```dart
-Future<void> watchConnections() async {
-  Set<String> previous = {};
-  
-  while (true) {
-    final current = (await Hid.getDevices()).map((d) => d.path).toSet();
-    
-    // 新设备
-    final added = current.difference(previous);
-    for (final path in added) print('Connected: $path');
-    
-    // 移除设备
-    final removed = previous.difference(current);
-    for (final path in removed) print('Disconnected: $path');
-    
-    previous = current;
-    await Future.delayed(Duration(seconds: 1));
-  }
-}
+// Get feature report
+Uint8List feature = await device.getFeatureReport(64);
+
+// Send feature report
+await device.sendFeatureReport(Uint8List.fromList([0x00, 0x01]));
+
+// Get indexed string
+String indexedStr = await device.getIndexedString(1);
+
+// Query hidapi version (0.15.0+)
+Map<String, int> version = await Hid.getVersion();
+print('hidapi: ${version['major']}.${version['minor']}.${version['patch']}');
+
+// Query report lengths
+int inputLen = await device.getInputReportLength();
+int outputLen = await device.getOutputReportLength();
 ```
 
----
-
-## 📚 相关资源链接
-
-| 资源 | URL |
-|------|-----|
-| GitHub 项目 | https://github.com/vinsfortunato/hid4flutter |
-| Pub.dev | https://pub.dev/packages/hid4flutter |
-| HIDAPI | https://github.com/libusb/hidapi |
-| USB HID 规范 | https://www.usb.org/hid |
-| Dart FFI | https://dart.dev/guides/libraries/native-interop |
-| Flutter 文档 | https://flutter.dev |
-
----
-
-## 🎯 项目集成检查清单
-
-创建新项目时的确认清单：
-
-- [ ] 添加依赖: `flutter pub add hid4flutter`
-- [ ] 导入包: `import 'package:hid4flutter/hid4flutter.dart';`
-- [ ] 平台版本检查 (MacOS 10.11+, Windows 7+, Linux GTK3+)
-- [ ] 权限配置 (Linux udev 规则，如需要)
-- [ ] 错误处理 (try-catch HidException)
-- [ ] 资源释放 (finally 块中 device.close())
-- [ ] 测试连接与传输
-- [ ] 文档注释和用例
-
----
-
-## 版本信息
-
-| 组件 | 版本 |
-|------|------|
-| hid4flutter | 0.1.2 |
-| hidapi | 0.14.0 (推荐升级到 0.15.0) |
-| Flutter | ≥ 3.3.0 |
-| Dart | ≥ 3.0.0 |
-
----
-
-**更新时间**: 2026年3月26日  
-**状态**: 完整参考  
-**用途**: 日常开发查询 + 学习参考
-
----
-
-## 快速导航地图
+## 📦 Project Structure
 
 ```
-┌─ HID4FLUTTER_REFERENCE.md ─┐
-│ • 项目架构概览              │
-│ • 完整 API 文档             │
-│ • 平台实现细节              │
-│ • 构建配置信息              │
-└─────────────────────────────┘
-              ↓
-     ┌──────────────────┐
-     │  你的项目        │
-     │  (开发中)        │
-     └──────────────────┘
-         ↓          ↓
-    请查阅这        查看详细
-    个快速指南      API 文档
-         ↓          ↓
-    快速查询        HIDAPI_
-    日常问题        FFI_REFERENCE
-                    .md
-     ↓
-需要升级或
-新增功能？
-     ↓
-HIDAPI_0_15_0_
-MIGRATION.md
+lib/
+├── main.dart                    # Flutter UI application
+├── hid4flutter.dart             # Public API entry point
+└── src/
+    ├── hid_device.dart          # HidDevice abstract class
+    ├── hid_exception.dart       # Exception handling
+    ├── hid_platform_interface.dart
+    └── desktop/
+        ├── hid_desktop.dart     # Desktop platform implementation
+        ├── hid_device_desktop.dart
+        └── hidapi_ffi.dart      # FFI binding
+
+third_party/
+├── hidapi/
+│   └── hidapi.h                 # hidapi-0.15.0 header file
+├── windows/hid.c                # Windows implementation
+├── macos/hid.c                  # macOS implementation
+├── linux/hid.c                  # Linux implementation
+└── build_macos.sh               # macOS build script
 ```
+
+## 🎨 Features Demo
+
+### Device List Interface
+- Display all connected HID devices
+- Device information: VID, PID, serial number, manufacturer
+- Real-time refresh button
+- Error messages
+
+### Device Details
+- Complete information of the selected device
+- Connect/disconnect buttons
+- Send test report button
+- Connection status indicator
+
+### Error Handling
+- Clear error messages
+- Real-time SnackBar feedback
+- Exception handling
+
+## 🔗 Complete API List
+
+### Device Properties (12 total)
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | String | Device unique identifier |
+| `path` | String | Device path |
+| `vendorId` | int | USB VID |
+| `productId` | int | USB PID |
+| `serialNumber` | String | Serial number |
+| `releaseNumber` | int | Version number |
+| `manufacturer` | String | Manufacturer |
+| `productName` | String | Product name |
+| `usagePage` | int | HID usage page |
+| `usage` | int | HID usage |
+| `interfaceNumber` | int | Interface number |
+| `busType` | int | Bus type |
+
+### Device Methods (13 total)
+| Method | Description |
+|--------|-------------|
+| `open()` | Open the device |
+| `close()` | Close the device |
+| `sendReport()` | Send output report |
+| `receiveReport()` | Receive input report |
+| `sendFeatureReport()` | Send feature report |
+| `getFeatureReport()` | Get feature report |
+| `getReportDescriptor()` ⭐ | Get report descriptor |
+| `getInputReportLength()` | Get input report length |
+| `getOutputReportLength()` | Get output report length |
+| `getFeatureReportLength()` | Get feature report length |
+| `getIndexedString()` | Get indexed string |
+| `inputStream()` | Input stream |
+
+### Hid Class Methods
+| Method | Description |
+|--------|-------------|
+| `Hid.init()` | Initialize HID system |
+| `Hid.getDevices()` | Get all devices |
+| `Hid.getDevice()` | Get device by VID/PID |
+| `Hid.getVersion()` ⭐ | Get hidapi version |
+
+⭐ = hidapi 0.15.0 new features
+
+## 📚 Documentation
+
+| Document | Content |
+|----------|---------|
+| [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md) / [IMPLEMENTATION_GUIDE-EN.md](IMPLEMENTATION_GUIDE-EN.md) | Complete implementation guide |
+| [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md) / [PROJECT_SUMMARY-EN.md](PROJECT_SUMMARY-EN.md) | Project summary |
+| [HID4FLUTTER_REFERENCE.md](HID4FLUTTER_REFERENCE.md) / [HID4FLUTTER_REFERENCE-EN.md](HID4FLUTTER_REFERENCE-EN.md) | Architecture reference |
+| [HIDAPI_FFI_REFERENCE.md](HIDAPI_FFI_REFERENCE.md) / [HIDAPI_FFI_REFERENCE-EN.md](HIDAPI_FFI_REFERENCE-EN.md) | API details |
+
+## 🐛 Troubleshooting
+
+### "hidapi library not found"
+
+**Linux**
+```bash
+sudo apt-get install libhidapi-hidraw0
+```
+
+**macOS**
+```bash
+cd third_party
+./build_macos.sh
+```
+
+**Windows**
+- Ensure Visual Studio 2022 is installed
+- Re-run `flutter run`
+
+### Device not showing
+
+- Check USB connection
+- Try the refresh button
+- On Linux, you may need elevated privileges: `sudo flutter run`
+
+### Compilation failed
+
+- **Linux**: Install build tools: `sudo apt-get install build-essential cmake`
+- **macOS**: Install Xcode tools: `xcode-select --install`
+- **Windows**: Install Visual Studio Build Tools
+
+## 🎯 Supported Platforms
+
+| Platform | Support | Build Method |
+|----------|---------|--------------|
+| Windows | ✅ | CMake + MSVC |
+| macOS | ✅ | Clang + Xcode |
+| Linux | ✅ | CMake + GCC |
+| iOS | 📋 | Planned |
+| Android | 📋 | Planned |
+
+## 📋 Implementation Checklist
+
+- ✅ Dart API layer (complete)
+- ✅ FFI binding (hidapi-0.15.0 full features)
+- ✅ Desktop implementation (Windows/macOS/Linux)
+- ✅ Native code (3 platforms)
+- ✅ Compilation configuration (CMake)
+- ✅ Flutter UI application
+- ✅ Documentation and examples
+
+## 🔐 License
+
+MIT License - See [LICENSE](LICENSE) file
+
+## 📖 Related Links
+
+- [hidapi Official](https://github.com/libusb/hidapi)
+- [hidapi-0.15.0 Release](https://github.com/libusb/hidapi/releases/tag/hidapi-0.15.0)
+- [Flutter FFI](https://dart.dev/guides/libraries/c-interop)
+- [hid4flutter Original Project](https://github.com/vinsfortunato/hid4flutter)
+
+## 💬 Community
+
+Have questions or suggestions?
+
+1. Check the troubleshooting section in [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md)
+2. Check console error messages
+3. Submit an Issue or Pull Request
 
 ---
 
-**提示**: 书签这个文件，它会是你最常用的参考文档！
+**Project Version**: 1.0.0  
+**hidapi Version**: 0.15.0  
+**Flutter Version**: 3.10.4+  
+**Status**: ✅ Complete
 
+**Get started now!** 🚀
