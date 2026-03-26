@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /d E:ProjectGithubflutterhidtool)",
+      "Bash(flutter clean:*)",
+      "Bash(flutter run:*)",
+      "Bash(dumpbin /exports hidapi.dll)",
+      "Bash(objdump -p hidapi.dll)",
+      "Bash(taskkill /F /IM hidtool.exe)",
+      "Bash(taskkill /IM hidtool.exe /F)",
+      "Bash(powershell -Command \"Get-Process hidtool -ErrorAction SilentlyContinue | Stop-Process -Force\" 2>&1)"
+    ]
+  }
+}
